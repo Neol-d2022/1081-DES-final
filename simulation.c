@@ -5,7 +5,7 @@
 
 #include "simulation.h"
 
-static double ibm_pseudo(unsigned long long *x)
+/*static double ibm_pseudo(unsigned long long *x)
 {
     unsigned long long y;
     
@@ -16,6 +16,19 @@ static double ibm_pseudo(unsigned long long *x)
         return 2147483547.0 / 2147483548.0;
     else
         return (double)y / 2147483548.0;
+}*/
+
+static double lehmer_pseudo(unsigned long long *x)
+{
+    unsigned long long y;
+    
+    y = ((*x) * 279470273llu) % 0xfffffffbllu;
+    *x = y;
+    
+    if (y == 0)
+        return 4294967295.0 / 4294967296.0;
+    else
+        return (double)y / 4294967296.0;
 }
 
 static unsigned long long next_stream(unsigned long long seed, unsigned long long k, double (*fp)(unsigned long long *))
@@ -37,8 +50,8 @@ static double inverse_exponetial(double r, double m)
 
 static void GenerateCustomer(Customer_t *c, Simulation_t *s)
 {
-    c->arrivalTime = inverse_exponetial(ibm_pseudo((s->p.seed) + 0), s->p.arrivalRate) + s->s.currentTime;
-    c->serviceTime = inverse_exponetial(ibm_pseudo((s->p.seed) + 1), s->p.serviceMean);
+    c->arrivalTime = inverse_exponetial(lehmer_pseudo((s->p.seed) + SEED_ARRIVAL), s->p.arrivalRate) + s->s.currentTime;
+    c->serviceTime = inverse_exponetial(lehmer_pseudo((s->p.seed) + SEED_SERVICE), s->p.serviceMean);
     c->id = (s->s.nextCustomerId)++;
 }
 
@@ -64,6 +77,252 @@ static int server_comparer(const void *a, const void *b)
         return 1;
     else
         return 0;
+}
+
+static inline int server_busy(const Server_t *server)
+{
+    return (server->st.statusFlags & ~SERVER_FLAG_INQUEUE) ? (-1) : (0);
+}
+
+static int server_fill_needs(Server_t *server, Simulation_t *s, int *ready)
+{
+    double t;
+    Event_t *newEvent;
+    int ret = 0;
+    
+    if (server->st.statusFlags & SERVER_FLAG_SERVING)
+        *ready = 0;
+    else if (server->st.statusFlags & SERVER_FLAG_PEE)
+    {
+        *ready = 0;
+        
+        if (!(server->st.statusFlags & SERVER_FLAGS_NEEDS))
+        {
+            newEvent = (Event_t *)malloc(sizeof(*newEvent));
+            if (newEvent)
+            {
+                t = inverse_normal(lehmer_pseudo(s->p.seed + SEED_FILL_PEE)) * server->peeFillStddev + server->peeFillMeanTime;
+                if (t < 1.0)
+                    t = 1.0;
+                
+                newEvent->type = EVENT_FILL_PEE;
+                newEvent->eventTime = s->s.currentTime + t;
+                newEvent->data = server;
+                
+                ret = HeapQueueInsert(&(s->s.eventQueue), newEvent);
+                if (ret == 0)
+                {
+                    server->st.statusFlags |= SERVER_FLAG_PEE_S;
+                    printf("%17.6lf   Server %u is peeing (takes %lf, til %lf)\n", s->s.currentTime, server->id, t, newEvent->eventTime);
+                    printf("%17.6lf   %u customer(s) in queue.\n", s->s.currentTime, LinkedQueueLength(&(s->s.customerQueue)));
+                }
+            }
+            else
+                ret = 1;
+        }
+    }
+    else if (server->st.statusFlags & SERVER_FLAG_THRIST)
+    {
+        *ready = 0;
+        
+        if (!(server->st.statusFlags & SERVER_FLAGS_NEEDS))
+        {
+            newEvent = (Event_t *)malloc(sizeof(*newEvent));
+            if (newEvent)
+            {
+                t = inverse_normal(lehmer_pseudo(s->p.seed + SEED_FILL_THRIST)) * server->thristFillStddev + server->thristFillMeanTime;
+                if (t < 1.0)
+                    t = 1.0;
+                
+                newEvent->type = EVENT_FILL_THRIST;
+                newEvent->eventTime = s->s.currentTime + t;
+                newEvent->data = server;
+                
+                ret = HeapQueueInsert(&(s->s.eventQueue), newEvent);
+                if (ret == 0)
+                {
+                    server->st.statusFlags |= SERVER_FLAG_THRIST_S;
+                    printf("%17.6lf   Server %u is drinking (takes %lf, til %lf)\n", s->s.currentTime, server->id, t, newEvent->eventTime);
+                    printf("%17.6lf   %u customer(s) in queue.\n", s->s.currentTime, LinkedQueueLength(&(s->s.customerQueue)));
+                }
+            }
+            else
+                ret = 1;
+        }
+    }
+    else if (server->st.statusFlags & SERVER_FLAG_POO)
+    {
+        *ready = 0;
+        
+        if (!(server->st.statusFlags & SERVER_FLAGS_NEEDS))
+        {
+            newEvent = (Event_t *)malloc(sizeof(*newEvent));
+            if (newEvent)
+            {
+                t = inverse_normal(lehmer_pseudo(s->p.seed + SEED_FILL_POO)) * server->pooFillStddev + server->pooFillMeanTime;
+                if (t < 1.0)
+                    t = 1.0;
+                
+                newEvent->type = EVENT_FILL_POO;
+                newEvent->eventTime = s->s.currentTime + t;
+                newEvent->data = server;
+                
+                ret = HeapQueueInsert(&(s->s.eventQueue), newEvent);
+                if (ret == 0)
+                {
+                    server->st.statusFlags |= SERVER_FLAG_POO_S;
+                    printf("%17.6lf   Server %u is pooing (takes %lf, til %lf)\n", s->s.currentTime, server->id, t, newEvent->eventTime);
+                    printf("%17.6lf   %u customer(s) in queue.\n", s->s.currentTime, LinkedQueueLength(&(s->s.customerQueue)));
+                }
+            }
+            else
+                ret = 1;
+        }
+    }
+    else if (server->st.statusFlags & SERVER_FLAG_HUNGER)
+    {
+        *ready = 0;
+        
+        if (!(server->st.statusFlags & SERVER_FLAGS_NEEDS))
+        {
+            newEvent = (Event_t *)malloc(sizeof(*newEvent));
+            if (newEvent)
+            {
+                t = inverse_normal(lehmer_pseudo(s->p.seed + SEED_FILL_HUNGER)) * server->hungerFillStddev + server->hungerFillMeanTime;
+                if (t < 1.0)
+                    t = 1.0;
+                
+                newEvent->type = EVENT_FILL_HUNGER;
+                newEvent->eventTime = s->s.currentTime + t;
+                newEvent->data = server;
+                
+                ret = HeapQueueInsert(&(s->s.eventQueue), newEvent);
+                if (ret == 0)
+                {
+                    server->st.statusFlags |= SERVER_FLAG_HUNGER_S;
+                    printf("%17.6lf   Server %u is eating (takes %lf, til %lf)\n", s->s.currentTime, server->id, t, newEvent->eventTime);
+                    printf("%17.6lf   %u customer(s) in queue.\n", s->s.currentTime, LinkedQueueLength(&(s->s.customerQueue)));
+                }
+            }
+            else
+                ret = 1;
+        }
+    }
+    else if (server->st.statusFlags & SERVER_FLAG_RELAX)
+    {
+        *ready = 0;
+        
+        if (!(server->st.statusFlags & SERVER_FLAGS_NEEDS))
+        {
+            newEvent = (Event_t *)malloc(sizeof(*newEvent));
+            if (newEvent)
+            {
+                t = inverse_normal(lehmer_pseudo(s->p.seed + SEED_FILL_RELAX)) * server->relaxFillStddev + server->relaxFillMeanTime;
+                if (t < 1.0)
+                    t = 1.0;
+                
+                newEvent->type = EVENT_FILL_RELAX;
+                newEvent->eventTime = s->s.currentTime + t;
+                newEvent->data = server;
+                
+                ret = HeapQueueInsert(&(s->s.eventQueue), newEvent);
+                if (ret == 0)
+                {
+                    server->st.statusFlags |= SERVER_FLAG_RELAX_S;
+                    printf("%17.6lf   Server %u is relaxing (takes %lf, til %lf)\n", s->s.currentTime, server->id, t, newEvent->eventTime);
+                    printf("%17.6lf   %u customer(s) in queue.\n", s->s.currentTime, LinkedQueueLength(&(s->s.customerQueue)));
+                }
+            }
+            else
+                ret = 1;
+        }
+    }
+    else if (server->st.statusFlags & SERVER_FLAG_SLEEPY)
+    {
+        *ready = 0;
+        
+        if (!(server->st.statusFlags & SERVER_FLAGS_NEEDS))
+        {
+            newEvent = (Event_t *)malloc(sizeof(*newEvent));
+            if (newEvent)
+            {
+                t = inverse_normal(lehmer_pseudo(s->p.seed + SEED_FILL_SLEEPY)) * server->sleepFillStddev + server->sleepFillMeanTime;
+                if (t < 1.0)
+                    t = 1.0;
+                
+                newEvent->type = EVENT_FILL_SLEEPY;
+                newEvent->eventTime = s->s.currentTime + t;
+                newEvent->data = server;
+                
+                ret = HeapQueueInsert(&(s->s.eventQueue), newEvent);
+                if (ret == 0)
+                {
+                    server->st.statusFlags |= SERVER_FLAG_SLEEPY_S;
+                    printf("%17.6lf   Server %u is sleeping (takes %lf, til %lf)\n", s->s.currentTime, server->id, t, newEvent->eventTime);
+                    printf("%17.6lf   %u customer(s) in queue.\n", s->s.currentTime, LinkedQueueLength(&(s->s.customerQueue)));
+                }
+            }
+            else
+                ret = 1;
+        }
+    }
+    else
+        *ready = -1;
+    
+    return ret;
+}
+
+static int server_idle(Server_t *server, Simulation_t *s)
+{
+    Event_t *newEvent;
+    Customer_t *nextCustomer;
+    int ready;
+    
+    if (server_fill_needs(server, s, &ready))
+        return -1;
+    
+    if (!ready)
+    {
+        // Not ready for next customer.
+    }
+    else if (LinkedQueueRetrieve(&(s->s.customerQueue), (void **)&nextCustomer) == 0)
+    {
+        newEvent = (Event_t *)malloc(sizeof(*newEvent));
+        if (!newEvent)
+        {
+            free(nextCustomer);
+            return -1;
+        }
+        
+        server->st.serving = nextCustomer;
+        server->st.statusFlags |= SERVER_FLAG_SERVING;
+        newEvent->type = EVENT_DEPARTURE;
+        newEvent->eventTime = s->s.currentTime + (nextCustomer->serviceTime * server->serviceCoef);
+        newEvent->data = server;
+        
+        if (HeapQueueInsert(&(s->s.eventQueue), newEvent))
+        {
+            free(nextCustomer);
+            free(newEvent);
+            return -1;
+        }
+        
+        printf("%17.6lf   Server %u remains busy\n", s->s.currentTime, server->id);
+        printf("%17.6lf   %u customer(s) in queue.\n", s->s.currentTime, LinkedQueueLength(&(s->s.customerQueue)));
+        printf("%17.6lf   Departuare of customer ID %u (%lf, %lf) scheduled at %lf.\n", s->s.currentTime, nextCustomer->id, nextCustomer->arrivalTime, nextCustomer->serviceTime, newEvent->eventTime);
+    }
+    else
+    {
+        if (!(server->st.statusFlags & SERVER_FLAG_INQUEUE))
+        {
+            if (HeapQueueInsert(&(s->s.serverQueue), server))
+                return -1;
+            server->st.statusFlags |=  SERVER_FLAG_INQUEUE;
+        }
+        printf("%17.6lf   Server %u goes idle.\n", s->s.currentTime, server->id);
+    }
+    
+    return 0;
 }
 
 // ================================================================
@@ -96,6 +355,14 @@ int SimulationSetup(Simulation_t *s)
         return -1;
     }
     
+    printf("SimulationSetup: %u seeds.\n", (unsigned int)(sizeof(s->p.seed) / sizeof(s->p.seed[0])));
+    printf("Seed 0: %u\n", (unsigned int)(s->p.seed[0]));
+    for (unsigned int i = 1; i < sizeof(s->p.seed) / sizeof(s->p.seed[0]); i++)
+    {
+        s->p.seed[i] = next_stream(s->p.seed[i - 1], SEED_STREAM_K, lehmer_pseudo);
+        printf("Seed %u: %u\n", i, (unsigned int)(s->p.seed[i]));
+    }
+    
     GenerateCustomer(c, s);
     e->type = EVENT_ARRIVAL;
     e->data = c;
@@ -109,21 +376,13 @@ int SimulationSetup(Simulation_t *s)
         return ret;
     }
     
-    printf("SimulationSetup: %u seeds.\n", (unsigned int)(sizeof(s->p.seed) / sizeof(s->p.seed[0])));
-    printf("Seed 0: %llu\n", s->p.seed[0]);
-    for (unsigned int i = 1; i < sizeof(s->p.seed) / sizeof(s->p.seed[0]); i++)
-    {
-        s->p.seed[i] = next_stream(s->p.seed[i - 1], SEED_STREAM_K, ibm_pseudo);
-        printf("Seed %u: %llu\n", i, s->p.seed[i]);
-    }
-    
     printf("\n");
     return ret;
 }
 
 int SimulationStart(Simulation_t *s)
 {
-    Event_t *e;
+    Event_t *e, *newEvent;
     
     printf("SimulationStart:\n");
     if (!(s->p.elementsLeft))
@@ -132,16 +391,15 @@ int SimulationStart(Simulation_t *s)
     while (!HeapQueueRetrieve(&(s->s.eventQueue), (void **)&e))
     {
         s->s.currentTime = e->eventTime;
-        printf("TIME      %lf\n", s->s.currentTime);
         switch (e->type)
         {
             case EVENT_ARRIVAL:
             {
-                Event_t *newEvent;
                 Customer_t *c = (Customer_t *)(e->data);
                 Server_t *server;
                 
-                printf("ARRIVAL   %u: (%lf, %lf)\n", c->id, c->arrivalTime, c->serviceTime);
+                printf("%17.6lf   ARRIVAL   %u: (%lf, %lf)\n", s->s.currentTime, c->id, c->arrivalTime, c->serviceTime);
+retry_next_server:
                 if (HeapQueueRetrieve(&(s->s.serverQueue), (void **)&server))
                 {
                     if (LinkedQueueInsert(&(s->s.customerQueue), c))
@@ -151,10 +409,15 @@ int SimulationStart(Simulation_t *s)
                         return -1;
                     }
                     
-                    printf("          All servers are busy, %u customer(s) in queue.\n", LinkedQueueLength(&(s->s.customerQueue)));
+                    printf("%17.6lf   All servers are busy\n", s->s.currentTime);
+                    printf("%17.6lf   %u customer(s) in queue.\n", s->s.currentTime, LinkedQueueLength(&(s->s.customerQueue)));
                 }
                 else
                 {
+                    server->st.statusFlags &= ~SERVER_FLAG_INQUEUE;
+                    if (server_busy(server))
+                        goto retry_next_server;
+                    
                     newEvent = (Event_t *)malloc(sizeof(*newEvent));
                     if (!newEvent)
                     {
@@ -163,7 +426,8 @@ int SimulationStart(Simulation_t *s)
                         return -1;
                     }
                     
-                    server->serving = c;
+                    server->st.serving = c;
+                    server->st.statusFlags |= SERVER_FLAG_SERVING;
                     newEvent->type = EVENT_DEPARTURE;
                     newEvent->eventTime = s->s.currentTime + (c->serviceTime * server->serviceCoef);
                     newEvent->data = server;
@@ -176,8 +440,9 @@ int SimulationStart(Simulation_t *s)
                         return -1;
                     }
                     
-                    printf("          Server %u goes busy.\n", server->id);
-                    printf("          Departuare of customer ID %u (%lf, %lf) scheduled at %lf.\n", c->id, c->arrivalTime, c->serviceTime, newEvent->eventTime);
+                    printf("%17.6lf   Server %u goes busy.\n", s->s.currentTime, server->id);
+                    printf("%17.6lf   %u customer(s) in queue.\n", s->s.currentTime, LinkedQueueLength(&(s->s.customerQueue)));
+                    printf("%17.6lf   Departuare of customer ID %u (%lf, %lf) scheduled at %lf.\n", s->s.currentTime, c->id, c->arrivalTime, c->serviceTime, newEvent->eventTime);
                 }
                 
                 {
@@ -208,54 +473,22 @@ int SimulationStart(Simulation_t *s)
             }
             case EVENT_DEPARTURE:
             {
-                Event_t *newEvent;
-                Customer_t *c, *nextCustomer;
+                Customer_t *c;
                 Server_t *server = (Server_t *)(e->data);
                 
-                c = server->serving;
-                server->serviceCount++;
-                server->serviceTotalTime += c->serviceTime * server->serviceCoef;
+                c = server->st.serving;
+                server->st.serviceCount++;
+                server->st.serviceTotalTime += c->serviceTime * server->serviceCoef;
+                server->st.statusFlags &= ~SERVER_FLAG_SERVING;
                 s->st.nCustomers++;
                 s->st.customerSystemTimeTotal += c->serviceTime * server->serviceCoef;
+                printf("%17.6lf   DEPARTURE %u: (%lf, %lf)\n", s->s.currentTime, c->id, c->arrivalTime, c->serviceTime);
                 
-                printf("DEPARTURE %u: (%lf, %lf)\n", c->id, c->arrivalTime, c->serviceTime);
-                if (LinkedQueueRetrieve(&(s->s.customerQueue), (void **)&nextCustomer) == 0)
+                if (server_idle(server, s))
                 {
-                    newEvent = (Event_t *)malloc(sizeof(*newEvent));
-                    if (!newEvent)
-                    {
-                        free(c);
-                        free(e);
-                        free(nextCustomer);
-                        return -1;
-                    }
-                    
-                    server->serving = nextCustomer;
-                    newEvent->type = EVENT_DEPARTURE;
-                    newEvent->eventTime = s->s.currentTime + (nextCustomer->serviceTime * server->serviceCoef);
-                    newEvent->data = server;
-                    
-                    if (HeapQueueInsert(&(s->s.eventQueue), newEvent))
-                    {
-                        free(c);
-                        free(e);
-                        free(nextCustomer);
-                        free(newEvent);
-                        return -1;
-                    }
-                    
-                    printf("          Server %u remains busy, %u customer(s) in queue.\n", server->id, LinkedQueueLength(&(s->s.customerQueue)));
-                    printf("          Departuare of customer ID %u (%lf, %lf) scheduled at %lf.\n", nextCustomer->id, nextCustomer->arrivalTime, nextCustomer->serviceTime, newEvent->eventTime);
-                    
-                }
-                else
-                {
-                    if (HeapQueueInsert(&(s->s.serverQueue), server))
-                    {
-                        free(c);
-                        return -1;
-                    }
-                    printf("          Server %u goes idle.\n", server->id);
+                    free(c);
+                    free(e);
+                    return -1;
                 }
                 
                 if (!(--(s->p.elementsLeft)))
@@ -264,6 +497,7 @@ int SimulationStart(Simulation_t *s)
                     if (!newEvent)
                     {
                         free(c);
+                        free(e);
                         return -1;
                     }
                     
@@ -274,6 +508,7 @@ int SimulationStart(Simulation_t *s)
                     if (HeapQueueInsert(&(s->s.eventQueue), newEvent))
                     {
                         free(c);
+                        free(e);
                         free(newEvent);
                         return -1;
                     }
@@ -282,9 +517,309 @@ int SimulationStart(Simulation_t *s)
                 free(c);
                 break;
             }
+            case EVENT_FEEL_HUNGER:
+            {
+                Server_t *server = (Server_t *)(e->data);
+                int ready;
+                
+                printf("%17.6lf   HUNGER(-) %u\n", s->s.currentTime, server->id);
+                server->st.statusFlags |= SERVER_FLAG_HUNGER;
+                if (server_fill_needs(server, s, &ready))
+                {
+                    free(e);
+                    return -1;
+                }
+                break;
+            }
+            case EVENT_FILL_HUNGER:
+            {
+                double t;
+                Server_t *server = (Server_t *)(e->data);
+                server->st.statusFlags &= ~SERVER_FLAG_HUNGER;
+                server->st.statusFlags &= ~SERVER_FLAG_HUNGER_S;
+                
+                printf("%17.6lf   HUNGER(+) %u\n", s->s.currentTime, server->id);
+                if (server_idle(server, s))
+                {
+                    free(e);
+                    return -1;
+                }
+                
+                newEvent = (Event_t *)malloc(sizeof(*newEvent));
+                if (!newEvent)
+                {
+                    free(e);
+                    return -1;
+                }
+                
+                t = inverse_normal(lehmer_pseudo(s->p.seed + SEED_FEEL_HUNGER)) * (server->hungerStddev) + server->hungerMeanTime;
+                if (t < 1.0)
+                    t = 1.0;
+                newEvent->type = EVENT_FEEL_HUNGER;
+                newEvent->eventTime = s->s.currentTime + t;
+                newEvent->data = server;
+                
+                if (HeapQueueInsert(&(s->s.eventQueue), newEvent))
+                {
+                    free(e);
+                    free(newEvent);
+                    return -1;
+                }
+                break;
+            }
+            case EVENT_FEEL_THRIST:
+            {
+                Server_t *server = (Server_t *)(e->data);
+                int ready;
+                
+                printf("%17.6lf   THRIST(-) %u\n", s->s.currentTime, server->id);
+                server->st.statusFlags |= SERVER_FLAG_THRIST;
+                if (server_fill_needs(server, s, &ready))
+                {
+                    free(e);
+                    return -1;
+                }
+                break;
+            }
+            case EVENT_FILL_THRIST:
+            {
+                double t;
+                Server_t *server = (Server_t *)(e->data);
+                server->st.statusFlags &= ~SERVER_FLAG_THRIST;
+                server->st.statusFlags &= ~SERVER_FLAG_THRIST_S;
+                
+                printf("%17.6lf   THRIST(+) %u\n", s->s.currentTime, server->id);
+                if (server_idle(server, s))
+                {
+                    free(e);
+                    return -1;
+                }
+                
+                newEvent = (Event_t *)malloc(sizeof(*newEvent));
+                if (!newEvent)
+                {
+                    free(e);
+                    return -1;
+                }
+                
+                t = inverse_exponetial(lehmer_pseudo(s->p.seed + SEED_FEEL_THRIST), server->thristMeanTime);
+                if (t < 1.0)
+                    t = 1.0;
+                newEvent->type = EVENT_FEEL_THRIST;
+                newEvent->eventTime = s->s.currentTime + t;
+                newEvent->data = server;
+                
+                if (HeapQueueInsert(&(s->s.eventQueue), newEvent))
+                {
+                    free(e);
+                    free(newEvent);
+                    return -1;
+                }
+                break;
+            }
+            case EVENT_FEEL_SLEEPY:
+            {
+                Server_t *server = (Server_t *)(e->data);
+                int ready;
+                
+                printf("%17.6lf   SLEEPY(-) %u\n", s->s.currentTime, server->id);
+                server->st.statusFlags |= SERVER_FLAG_SLEEPY;
+                if (server_fill_needs(server, s, &ready))
+                {
+                    free(e);
+                    return -1;
+                }
+                break;
+            }
+            case EVENT_FILL_SLEEPY:
+            {
+                double t;
+                Server_t *server = (Server_t *)(e->data);
+                server->st.statusFlags &= ~SERVER_FLAG_SLEEPY;
+                server->st.statusFlags &= ~SERVER_FLAG_SLEEPY_S;
+                
+                printf("%17.6lf   SLEEPY(+) %u\n", s->s.currentTime, server->id);
+                if (server_idle(server, s))
+                {
+                    free(e);
+                    return -1;
+                }
+                
+                newEvent = (Event_t *)malloc(sizeof(*newEvent));
+                if (!newEvent)
+                {
+                    free(e);
+                    return -1;
+                }
+                
+                t = inverse_normal(lehmer_pseudo(s->p.seed + SEED_FEEL_SLEEPY)) * (server->sleepStddev) + server->sleepMeanTime;
+                if (t < 1.0)
+                    t = 1.0;
+                newEvent->type = EVENT_FEEL_SLEEPY;
+                newEvent->eventTime = s->s.currentTime + t;
+                newEvent->data = server;
+                
+                if (HeapQueueInsert(&(s->s.eventQueue), newEvent))
+                {
+                    free(e);
+                    free(newEvent);
+                    return -1;
+                }
+                break;
+            }
+            case EVENT_FEEL_PEE:
+            {
+                Server_t *server = (Server_t *)(e->data);
+                int ready;
+                
+                printf("%17.6lf   PEE(-)    %u\n", s->s.currentTime, server->id);
+                server->st.statusFlags |= SERVER_FLAG_PEE;
+                if (server_fill_needs(server, s, &ready))
+                {
+                    free(e);
+                    return -1;
+                }
+                break;
+            }
+            case EVENT_FILL_PEE:
+            {
+                double t;
+                Server_t *server = (Server_t *)(e->data);
+                server->st.statusFlags &= ~SERVER_FLAG_PEE;
+                server->st.statusFlags &= ~SERVER_FLAG_PEE_S;
+                
+                printf("%17.6lf   PEE(+)    %u\n", s->s.currentTime, server->id);
+                if (server_idle(server, s))
+                {
+                    free(e);
+                    return -1;
+                }
+                
+                newEvent = (Event_t *)malloc(sizeof(*newEvent));
+                if (!newEvent)
+                {
+                    free(e);
+                    return -1;
+                }
+                
+                t = inverse_exponetial(lehmer_pseudo(s->p.seed + SEED_FEEL_PEE), server->peeMeanTime);
+                if (t < 1.0)
+                    t = 1.0;
+                newEvent->type = EVENT_FEEL_PEE;
+                newEvent->eventTime = s->s.currentTime + t;
+                newEvent->data = server;
+                
+                if (HeapQueueInsert(&(s->s.eventQueue), newEvent))
+                {
+                    free(e);
+                    free(newEvent);
+                    return -1;
+                }
+                break;
+            }
+            case EVENT_FEEL_POO:
+            {
+                Server_t *server = (Server_t *)(e->data);
+                int ready;
+                
+                printf("%17.6lf   POO(-)    %u\n", s->s.currentTime, server->id);
+                server->st.statusFlags |= SERVER_FLAG_POO;
+                if (server_fill_needs(server, s, &ready))
+                {
+                    free(e);
+                    return -1;
+                }
+                break;
+            }
+            case EVENT_FILL_POO:
+            {
+                double t;
+                Server_t *server = (Server_t *)(e->data);
+                server->st.statusFlags &= ~SERVER_FLAG_POO;
+                server->st.statusFlags &= ~SERVER_FLAG_POO_S;
+                
+                printf("%17.6lf   POO(+)    %u\n", s->s.currentTime, server->id);
+                if (server_idle(server, s))
+                {
+                    free(e);
+                    return -1;
+                }
+                
+                newEvent = (Event_t *)malloc(sizeof(*newEvent));
+                if (!newEvent)
+                {
+                    free(e);
+                    return -1;
+                }
+                
+                t = inverse_normal(lehmer_pseudo(s->p.seed + SEED_FEEL_POO)) * (server->pooStddev) + server->pooMeanTime;
+                if (t < 1.0)
+                    t = 1.0;
+                newEvent->type = EVENT_FEEL_POO;
+                newEvent->eventTime = s->s.currentTime + t;
+                newEvent->data = server;
+                
+                if (HeapQueueInsert(&(s->s.eventQueue), newEvent))
+                {
+                    free(e);
+                    free(newEvent);
+                    return -1;
+                }
+                break;
+            }
+            case EVENT_FEEL_RELAX:
+            {
+                Server_t *server = (Server_t *)(e->data);
+                int ready;
+                
+                printf("%17.6lf   RELAX(-)  %u\n", s->s.currentTime, server->id);
+                server->st.statusFlags |= SERVER_FLAG_RELAX;
+                if (server_fill_needs(server, s, &ready))
+                {
+                    free(e);
+                    return -1;
+                }
+                break;
+            }
+            case EVENT_FILL_RELAX:
+            {
+                double t;
+                Server_t *server = (Server_t *)(e->data);
+                server->st.statusFlags &= ~SERVER_FLAG_RELAX;
+                server->st.statusFlags &= ~SERVER_FLAG_RELAX_S;
+                
+                printf("%17.6lf   RELAX(+)  %u\n", s->s.currentTime, server->id);
+                if (server_idle(server, s))
+                {
+                    free(e);
+                    return -1;
+                }
+                
+                newEvent = (Event_t *)malloc(sizeof(*newEvent));
+                if (!newEvent)
+                {
+                    free(e);
+                    return -1;
+                }
+                
+                t = inverse_normal(lehmer_pseudo(s->p.seed + SEED_FEEL_RELAX)) * (server->relaxStddev) + server->relaxMeanTime;
+                if (t < 1.0)
+                    t = 1.0;
+                newEvent->type = EVENT_FEEL_RELAX;
+                newEvent->eventTime = s->s.currentTime + t;
+                newEvent->data = server;
+                
+                if (HeapQueueInsert(&(s->s.eventQueue), newEvent))
+                {
+                    free(e);
+                    free(newEvent);
+                    return -1;
+                }
+                break;
+            }
             case EVENT_SIMULATION_STOP:
             {
-                printf("SIMULATION_STOP\n");
+                printf("%17.6lf   SIMULATION_STOP\n", s->s.currentTime);
                 free(e);
                 return 0;
             }
@@ -296,4 +831,33 @@ int SimulationStart(Simulation_t *s)
         
         free(e);
     }
+    
+    return 0;
+}
+
+int SimulationAddServer(Simulation_t *s, Server_t *server)
+{
+    EventType_t needs[] = {EVENT_FILL_HUNGER, EVENT_FILL_THRIST, EVENT_FILL_SLEEPY, EVENT_FILL_PEE, EVENT_FILL_POO, EVENT_FILL_RELAX};
+    Event_t *newEvent;
+    unsigned int i, n = sizeof(needs) / sizeof(needs[0]);
+    
+    server->st.statusFlags |= (SERVER_FLAG_HUNGER | SERVER_FLAG_HUNGER_S);
+    for (i = 0; i < n; i++)
+    {
+        newEvent = (Event_t *)malloc(sizeof(*newEvent));
+        if (!newEvent)
+            return -1;
+        
+        newEvent->type = needs[i];
+        newEvent->eventTime = s->s.currentTime + server->joinTime;
+        newEvent->data = server;
+        
+        if (HeapQueueInsert(&(s->s.eventQueue), newEvent))
+        {
+            free(newEvent);
+            return -1;
+        }
+    }
+    
+    return 0;
 }

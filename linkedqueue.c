@@ -7,7 +7,7 @@
 
 int LinkedQueueInit(LinkedQueue_t *queue)
 {
-    memset(queue, 0, sizeof(queue));
+    memset(queue, 0, sizeof(*queue));
     queue->last = &(queue->head);
     
     return 0;
