@@ -113,6 +113,7 @@ static int server_fill_needs(Server_t *server, Simulation_t *s, int *ready)
                 if (ret == 0)
                 {
                     server->st.statusFlags |= SERVER_FLAG_PEE_S;
+					server->st.timeFillingNeeds = t;
                     printf("%17.6lf   Server %u is peeing (takes %lf, til %lf)\n", s->s.currentTime, server->id, t, newEvent->eventTime);
                     printf("%17.6lf   %u customer(s) in queue.\n", s->s.currentTime, LinkedQueueLength(&(s->s.customerQueue)));
                 }
@@ -121,7 +122,7 @@ static int server_fill_needs(Server_t *server, Simulation_t *s, int *ready)
                 ret = 1;
         }
     }
-    else if (server->st.statusFlags & SERVER_FLAG_THRIST)
+    else if (server->st.statusFlags & SERVER_FLAG_THIRST)
     {
         *ready = 0;
         
@@ -130,18 +131,19 @@ static int server_fill_needs(Server_t *server, Simulation_t *s, int *ready)
             newEvent = (Event_t *)malloc(sizeof(*newEvent));
             if (newEvent)
             {
-                t = inverse_normal(lehmer_pseudo(s->p.seed + SEED_FILL_THRIST)) * server->thristFillStddev + server->thristFillMeanTime;
+                t = inverse_normal(lehmer_pseudo(s->p.seed + SEED_FILL_THIRST)) * server->thristFillStddev + server->thristFillMeanTime;
                 if (t < 1.0)
                     t = 1.0;
                 
-                newEvent->type = EVENT_FILL_THRIST;
+                newEvent->type = EVENT_FILL_THIRST;
                 newEvent->eventTime = s->s.currentTime + t;
                 newEvent->data = server;
                 
                 ret = HeapQueueInsert(&(s->s.eventQueue), newEvent);
                 if (ret == 0)
                 {
-                    server->st.statusFlags |= SERVER_FLAG_THRIST_S;
+                    server->st.statusFlags |= SERVER_FLAG_THIRST_S;
+					server->st.timeFillingNeeds = t;
                     printf("%17.6lf   Server %u is drinking (takes %lf, til %lf)\n", s->s.currentTime, server->id, t, newEvent->eventTime);
                     printf("%17.6lf   %u customer(s) in queue.\n", s->s.currentTime, LinkedQueueLength(&(s->s.customerQueue)));
                 }
@@ -171,6 +173,7 @@ static int server_fill_needs(Server_t *server, Simulation_t *s, int *ready)
                 if (ret == 0)
                 {
                     server->st.statusFlags |= SERVER_FLAG_POO_S;
+					server->st.timeFillingNeeds = t;
                     printf("%17.6lf   Server %u is pooing (takes %lf, til %lf)\n", s->s.currentTime, server->id, t, newEvent->eventTime);
                     printf("%17.6lf   %u customer(s) in queue.\n", s->s.currentTime, LinkedQueueLength(&(s->s.customerQueue)));
                 }
@@ -200,6 +203,7 @@ static int server_fill_needs(Server_t *server, Simulation_t *s, int *ready)
                 if (ret == 0)
                 {
                     server->st.statusFlags |= SERVER_FLAG_HUNGER_S;
+					server->st.timeFillingNeeds = t;
                     printf("%17.6lf   Server %u is eating (takes %lf, til %lf)\n", s->s.currentTime, server->id, t, newEvent->eventTime);
                     printf("%17.6lf   %u customer(s) in queue.\n", s->s.currentTime, LinkedQueueLength(&(s->s.customerQueue)));
                 }
@@ -229,6 +233,7 @@ static int server_fill_needs(Server_t *server, Simulation_t *s, int *ready)
                 if (ret == 0)
                 {
                     server->st.statusFlags |= SERVER_FLAG_RELAX_S;
+					server->st.timeFillingNeeds = t;
                     printf("%17.6lf   Server %u is relaxing (takes %lf, til %lf)\n", s->s.currentTime, server->id, t, newEvent->eventTime);
                     printf("%17.6lf   %u customer(s) in queue.\n", s->s.currentTime, LinkedQueueLength(&(s->s.customerQueue)));
                 }
@@ -258,6 +263,7 @@ static int server_fill_needs(Server_t *server, Simulation_t *s, int *ready)
                 if (ret == 0)
                 {
                     server->st.statusFlags |= SERVER_FLAG_SLEEPY_S;
+					server->st.timeFillingNeeds = t;
                     printf("%17.6lf   Server %u is sleeping (takes %lf, til %lf)\n", s->s.currentTime, server->id, t, newEvent->eventTime);
                     printf("%17.6lf   %u customer(s) in queue.\n", s->s.currentTime, LinkedQueueLength(&(s->s.customerQueue)));
                 }
@@ -390,6 +396,7 @@ int SimulationStart(Simulation_t *s)
     
     while (!HeapQueueRetrieve(&(s->s.eventQueue), (void **)&e))
     {
+		s->st.customerQueueLengthTotal += (e->eventTime - s->s.currentTime) * LinkedQueueLength(&(s->s.customerQueue));
         s->s.currentTime = e->eventTime;
         switch (e->type)
         {
@@ -479,9 +486,11 @@ retry_next_server:
                 c = server->st.serving;
                 server->st.serviceCount++;
                 server->st.serviceTotalTime += c->serviceTime * server->serviceCoef;
+				server->st.customerSystemTimeTotal += s->s.currentTime - c->arrivalTime;
                 server->st.statusFlags &= ~SERVER_FLAG_SERVING;
                 s->st.nCustomers++;
-                s->st.customerSystemTimeTotal += c->serviceTime * server->serviceCoef;
+                s->st.customerSystemTimeTotal += s->s.currentTime - c->arrivalTime;
+                s->st.customerResponseTimeTotal += s->s.currentTime - c->arrivalTime - (c->serviceTime * server->serviceCoef);
                 printf("%17.6lf   DEPARTURE %u: (%lf, %lf)\n", s->s.currentTime, c->id, c->arrivalTime, c->serviceTime);
                 
                 if (server_idle(server, s))
@@ -537,6 +546,8 @@ retry_next_server:
                 Server_t *server = (Server_t *)(e->data);
                 server->st.statusFlags &= ~SERVER_FLAG_HUNGER;
                 server->st.statusFlags &= ~SERVER_FLAG_HUNGER_S;
+				server->st.hungryCount++;
+				server->st.timeEating += server->st.timeFillingNeeds;
                 
                 printf("%17.6lf   HUNGER(+) %u\n", s->s.currentTime, server->id);
                 if (server_idle(server, s))
@@ -567,13 +578,13 @@ retry_next_server:
                 }
                 break;
             }
-            case EVENT_FEEL_THRIST:
+            case EVENT_FEEL_THIRST:
             {
                 Server_t *server = (Server_t *)(e->data);
                 int ready;
                 
-                printf("%17.6lf   THRIST(-) %u\n", s->s.currentTime, server->id);
-                server->st.statusFlags |= SERVER_FLAG_THRIST;
+                printf("%17.6lf   THIRST(-) %u\n", s->s.currentTime, server->id);
+                server->st.statusFlags |= SERVER_FLAG_THIRST;
                 if (server_fill_needs(server, s, &ready))
                 {
                     free(e);
@@ -581,14 +592,16 @@ retry_next_server:
                 }
                 break;
             }
-            case EVENT_FILL_THRIST:
+            case EVENT_FILL_THIRST:
             {
                 double t;
                 Server_t *server = (Server_t *)(e->data);
-                server->st.statusFlags &= ~SERVER_FLAG_THRIST;
-                server->st.statusFlags &= ~SERVER_FLAG_THRIST_S;
+                server->st.statusFlags &= ~SERVER_FLAG_THIRST;
+                server->st.statusFlags &= ~SERVER_FLAG_THIRST_S;
+				server->st.thirstyCount++;
+				server->st.timeDrinking += server->st.timeFillingNeeds;
                 
-                printf("%17.6lf   THRIST(+) %u\n", s->s.currentTime, server->id);
+                printf("%17.6lf   THIRST(+) %u\n", s->s.currentTime, server->id);
                 if (server_idle(server, s))
                 {
                     free(e);
@@ -602,10 +615,10 @@ retry_next_server:
                     return -1;
                 }
                 
-                t = inverse_exponetial(lehmer_pseudo(s->p.seed + SEED_FEEL_THRIST), server->thristMeanTime);
+                t = inverse_exponetial(lehmer_pseudo(s->p.seed + SEED_FEEL_THIRST), server->thristMeanTime);
                 if (t < 1.0)
                     t = 1.0;
-                newEvent->type = EVENT_FEEL_THRIST;
+                newEvent->type = EVENT_FEEL_THIRST;
                 newEvent->eventTime = s->s.currentTime + t;
                 newEvent->data = server;
                 
@@ -637,6 +650,8 @@ retry_next_server:
                 Server_t *server = (Server_t *)(e->data);
                 server->st.statusFlags &= ~SERVER_FLAG_SLEEPY;
                 server->st.statusFlags &= ~SERVER_FLAG_SLEEPY_S;
+				server->st.sleepyCount++;
+				server->st.timeSleeping += server->st.timeFillingNeeds;
                 
                 printf("%17.6lf   SLEEPY(+) %u\n", s->s.currentTime, server->id);
                 if (server_idle(server, s))
@@ -687,6 +702,8 @@ retry_next_server:
                 Server_t *server = (Server_t *)(e->data);
                 server->st.statusFlags &= ~SERVER_FLAG_PEE;
                 server->st.statusFlags &= ~SERVER_FLAG_PEE_S;
+				server->st.peeCount++;
+				server->st.timePeeing += server->st.timeFillingNeeds;
                 
                 printf("%17.6lf   PEE(+)    %u\n", s->s.currentTime, server->id);
                 if (server_idle(server, s))
@@ -737,6 +754,8 @@ retry_next_server:
                 Server_t *server = (Server_t *)(e->data);
                 server->st.statusFlags &= ~SERVER_FLAG_POO;
                 server->st.statusFlags &= ~SERVER_FLAG_POO_S;
+				server->st.pooCount++;
+				server->st.timePooing += server->st.timeFillingNeeds;
                 
                 printf("%17.6lf   POO(+)    %u\n", s->s.currentTime, server->id);
                 if (server_idle(server, s))
@@ -787,6 +806,8 @@ retry_next_server:
                 Server_t *server = (Server_t *)(e->data);
                 server->st.statusFlags &= ~SERVER_FLAG_RELAX;
                 server->st.statusFlags &= ~SERVER_FLAG_RELAX_S;
+				server->st.relaxCount++;
+				server->st.timeRelaxing += server->st.timeFillingNeeds;
                 
                 printf("%17.6lf   RELAX(+)  %u\n", s->s.currentTime, server->id);
                 if (server_idle(server, s))
@@ -837,11 +858,13 @@ retry_next_server:
 
 int SimulationAddServer(Simulation_t *s, Server_t *server)
 {
-    EventType_t needs[] = {EVENT_FILL_HUNGER, EVENT_FILL_THRIST, EVENT_FILL_SLEEPY, EVENT_FILL_PEE, EVENT_FILL_POO, EVENT_FILL_RELAX};
+    EventType_t needs[] = {EVENT_FILL_HUNGER, EVENT_FILL_THIRST, EVENT_FILL_SLEEPY, EVENT_FILL_PEE, EVENT_FILL_POO, EVENT_FILL_RELAX};
     Event_t *newEvent;
     unsigned int i, n = sizeof(needs) / sizeof(needs[0]);
     
+	memset(&(server->st), 0, sizeof(server->st));
     server->st.statusFlags |= (SERVER_FLAG_HUNGER | SERVER_FLAG_HUNGER_S);
+	server->st.hungryCount = server->st.thirstyCount = server->st.sleepyCount = server->st.peeCount = server->st.pooCount = server->st.relaxCount = 0xFFFFFFFF;
     for (i = 0; i < n; i++)
     {
         newEvent = (Event_t *)malloc(sizeof(*newEvent));

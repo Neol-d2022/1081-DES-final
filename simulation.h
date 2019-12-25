@@ -12,8 +12,8 @@ typedef enum {
     EVENT_DEPARTURE,
     EVENT_FEEL_HUNGER,
     EVENT_FILL_HUNGER,
-    EVENT_FEEL_THRIST,
-    EVENT_FILL_THRIST,
+    EVENT_FEEL_THIRST,
+    EVENT_FILL_THIRST,
     EVENT_FEEL_SLEEPY,
     EVENT_FILL_SLEEPY,
     EVENT_FEEL_PEE,
@@ -40,8 +40,8 @@ typedef struct {
 #define SERVER_FLAG_SERVING     0x00000001
 #define SERVER_FLAG_HUNGER      0x00000002
 #define SERVER_FLAG_HUNGER_S    0x00000004
-#define SERVER_FLAG_THRIST      0x00000008
-#define SERVER_FLAG_THRIST_S    0x00000010
+#define SERVER_FLAG_THIRST      0x00000008
+#define SERVER_FLAG_THIRST_S    0x00000010
 #define SERVER_FLAG_SLEEPY      0x00000020
 #define SERVER_FLAG_SLEEPY_S    0x00000040
 #define SERVER_FLAG_PEE         0x00000080
@@ -52,12 +52,26 @@ typedef struct {
 #define SERVER_FLAG_RELAX_S     0x00001000
 #define SERVER_FLAG_INQUEUE     0x80000000
 
-#define SERVER_FLAGS_NEEDS      (SERVER_FLAG_HUNGER_S | SERVER_FLAG_THRIST_S | SERVER_FLAG_SLEEPY_S | SERVER_FLAG_PEE_S | SERVER_FLAG_POO_S | SERVER_FLAG_RELAX_S)
+#define SERVER_FLAGS_NEEDS      (SERVER_FLAG_HUNGER_S | SERVER_FLAG_THIRST_S | SERVER_FLAG_SLEEPY_S | SERVER_FLAG_PEE_S | SERVER_FLAG_POO_S | SERVER_FLAG_RELAX_S)
 
 typedef struct {
     Customer_t *serving;
     double serviceTotalTime;
+	double customerSystemTimeTotal;
+	double timeFillingNeeds;
+	double timeEating;
+	double timeDrinking;
+	double timeSleeping;
+	double timePeeing;
+	double timePooing;
+	double timeRelaxing;
     unsigned int serviceCount;
+	unsigned int hungryCount;
+	unsigned int thirstyCount;
+	unsigned int sleepyCount;
+	unsigned int peeCount;
+	unsigned int pooCount;
+	unsigned int relaxCount;
     unsigned int statusFlags;
 } ServerStatsAndStatistics_t;
 
@@ -95,8 +109,8 @@ typedef struct {
 #define SEED_SERVICE        1
 #define SEED_FEEL_HUNGER    2
 #define SEED_FILL_HUNGER    3
-#define SEED_FEEL_THRIST    4
-#define SEED_FILL_THRIST    5
+#define SEED_FEEL_THIRST    4
+#define SEED_FILL_THIRST    5
 #define SEED_FEEL_SLEEPY    6
 #define SEED_FILL_SLEEPY    7
 #define SEED_FEEL_PEE       8
@@ -124,6 +138,8 @@ typedef struct {
 
 typedef struct {
     double customerSystemTimeTotal;
+    double customerResponseTimeTotal;
+	double customerQueueLengthTotal;
     unsigned int nCustomers;
 } SimulationStatistics_t;
 
